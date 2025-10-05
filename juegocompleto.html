@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Split-Screen Shooter: Jugador vs. Bot - Escalado 2.6</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #1a1a1a;
+            color: white;
+            font-family: sans-serif;
+        }
+        canvas {
+            border: 2px solid #555;
+            background-color: #0f0f0f;
+        }
+        #menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.9);
+            padding: 30px;
+            border: 3px solid #333;
+            text-align: center;
+            z-index: 10;
+            max-width: 90vw; /* Ajustar el ancho máximo del menú */
+            max-height: 90vh; /* Ajustar la altura máxima del menú */
+            overflow-y: auto; /* Permitir scroll si el contenido es demasiado largo */
+        }
+        .hidden {
+            display: none;
+        }
+        .player-config {
+            border: 1px solid #444;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .player-config h2 {
+            margin-top: 0;
+            color: #ccc;
+        }
+        .control-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 8px 0;
+        }
+        .key-display {
+            background-color: #222;
+            padding: 5px 10px;
+            border: 1px solid #555;
+            border-radius: 3px;
+            min-width: 80px;
+            text-align: center;
+            cursor: pointer;
+        }
+        button {
+            padding: 10px 20px;
+            margin-top: 15px; /* Ajustar margen entre botones */
+            cursor: pointer;
+            font-size: 16px;
+            background-color: #444;
+            color: white;
+            border: 1px solid #666;
+            border-radius: 5px;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background-color: #666;
+        }
+        #difficulty-select {
+            margin-bottom: 15px;
+        }
+        #difficulty-select label, #difficulty-select select {
+            font-size: 1.1em;
+            margin: 0 5px;
+        }
+        #pause-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            font-size: 14px;
+            background-color: #555;
+            border: none;
+            color: white;
+            cursor: pointer;
+            z-index: 5; 
+        }
+
+        /* Estilos para el nuevo menú de armas */
+        #weapon-list-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.95);
+            padding: 20px;
+            border: 3px solid #00ff00; /* Borde verde para destacar */
+            text-align: left;
+            z-index: 20; /* Asegurar que esté por encima del menú principal */
+            max-width: 700px;
+            max-height: 80vh;
+            overflow-y: auto;
+            color: #eee;
+        }
+        #weapon-list-container h2 {
+            text-align: center;
+            color: #00ff00; /* Título verde */
+            margin-top: 0;
+        }
+        .weapon-item {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-bottom: 1px dashed #555;
+        }
+        .weapon-item:last-child {
+            border-bottom: none;
+        }
+        .weapon-item strong {
+            color: #00ffff; /* Nombre del arma en cian */
+        }
+        .weapon-item span {
+            display: block;
+            margin-left: 10px;
+            font-size: 0.9em;
+            color: #bbb;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<button id="pause-button" class="hidden">PAUSA (P)</button>
+
+<div id="menu">
+    <h1>Bienvenido a Split-Screen Shooter</h1>
+    <p id="menu-message">Prepárate para la acción.</p>
+    
+    <div id="difficulty-select">
+        <label for="difficulty">Dificultad:</label>
+        <select id="difficulty">
+            <option value="easy">Fácil</option>
+            <option value="medium" selected>Normal</option>
+            <option value="hard">Difícil</option>
+            <option value="insane">Imposible</option>
+        </select>
+    </div>
+    
+    <div id="main-menu-buttons">
+        <button id="start-btn">Iniciar Partida</button>
+        <button id="config-btn">Configurar Controles</button>
+        <button id="view-weapons-btn">Ver Armas</button>
+    </div>
+
+    <div id="config-controls" class="hidden">
+        <div class="player-config" id="p1-config">
+            <h2>JUGADOR (Controles por defecto: WASD, Espacio)</h2>
+        </div>
+        <p id="current-prompt" style="color: yellow;"></p>
+        <button id="back-to-menu-from-config">Volver al Menú</button>
+    </div>
+</div>
+
+<div id="weapon-list-container" class="hidden">
+    <h2>Arsenal Disponible</h2>
+    <div id="weapons-content">
+        </div>
+    <button id="close-weapons-btn">Cerrar</button>
+</div>
+
+<script>
+    // ===============================================
+    // CONSTANTES Y CONFIGURACIÓN INICIAL
+    // ===============================================
+    const CANVAS = document.getElementById('gameCanvas');
+    const CTX = CANVAS.getContext('2d');
+    const GAME_WIDTH = CANVAS.width;
+    const GAME_HEIGHT = CANVAS.height;
+    const SPLIT_WIDTH = GAME_WIDTH / 2; 
+
+    const PLAYER_SPEED = 200;
+    const BULLET_SPEED = 400; // Velocidad base de las balas
+    const GRENADE_SPEED = 300; 
+    const INITIAL_HP = 100;
+    
+    const MAX_LEVELS = 100; 
+    
+    const DIFFICULTY_SETTINGS = {
+        'easy':   { multiplier: 0.5, fireRate: 1.2, moveRandom: 0.5, requiredWins: MAX_LEVELS, bombChance: 0.1 }, 
+        'medium': { multiplier: 0.8, fireRate: 1.0, moveRandom: 0.3, requiredWins: MAX_LEVELS, bombChance: 0.3 }, 
+        'hard':   { multiplier: 1.2, fireRate: 0.8, moveRandom: 0.1, requiredWins: MAX_LEVELS, bombChance: 0.5 }, 
+        'insane': { multiplier: 1.5, fireRate: 0.6, moveRandom: 0.05, requiredWins: MAX_LEVELS, bombChance: 0.7 } 
+    };
+    
+    
+    const WEAPON_LIST = [
+        { name: "Pistola", damage: 10, rate: 0.5, type: 'normal', level: 1 }, 
+        { name: "Rifle", damage: 25, rate: 1.5, type: 'normal', bulletSpeed: BULLET_SPEED * 2, level: 5 }, 
+        { name: "Escopeta", damage: 10, rate: 2.5, type: 'spread', level: 10 },
+        { name: "Metralleta", damage: 5, rate: 0.1, type: 'normal', level: 15 }, 
+        { name: "Plasma", damage: 80, rate: 3.0, type: 'normal', level: 20 },   
+        { name: "Granada", damage: 40, rate: 2.0, type: 'grenade', AoEDamage: 20, explosionRadius: 50, level: 25 }, 
+        { name: "Rifle de Rayo", damage: 35, rate: 1.8, type: 'pierce', bulletSpeed: BULLET_SPEED * 1.5, level: 30 }, 
+        { name: "Subfusil", damage: 8, rate: 0.2, type: 'normal', level: 35 }, 
+        { name: "Lanza-Dardos", damage: 15, rate: 1.0, type: 'slow', slowDuration: 2, slowFactor: 0.5, level: 40 }, 
+        { name: "Lanzacohetes", damage: 60, rate: 4.0, type: 'grenade', AoEDamage: 40, explosionRadius: 80, level: 45 }, 
+        { name: "Bifurcador", damage: 15, rate: 2.2, type: 'splitter', splitCount: 3, level: 50 }, 
+        { name: "Rifle de Carga", damage: 50, rate: 3.5, type: 'charge', maxChargeDamage: 100, chargeTime: 1000, level: 55 }, 
+        { name: "Láser Rápido", damage: 12, rate: 1.2, type: 'burst', burstCount: 3, burstDelay: 0.08, bulletSpeed: BULLET_SPEED * 1.2, level: 60 }, 
+        { name: "Cañón de Ondas", damage: 70, rate: 2.8, type: 'knockback', knockbackForce: 50, level: 65 }, 
+        { name: "Anulador Temp.", damage: 90, rate: 5.0, type: 'slow', slowDuration: 3, slowFactor: 0.1, level: 70 } 
+    ];
+
+    class Configuration {
+        static controls = {
+            p1: {
+                UP: 'w', DOWN: 's', LEFT: 'a', RIGHT: 'd',
+                FIRE: ' ', CHANGE_WEAPON: 'q', 
+                PAUSE: 'p' 
+            }
+        };
+
+        static controlNames = {
+            UP: "Mover Arriba", DOWN: "Mover Abajo", LEFT: "Mover Izquierda", RIGHT: "Mover Derecha",
+            FIRE: "Disparar", CHANGE_WEAPON: "Cambiar Arma",
+            PAUSE: "Pausa (Alternar)"
+        };
+        
+        static getKeyDisplay(key) {
+            if (key === ' ') return 'SPACE';
+            if (key === 'enter') return 'ENTER';
+            if (key.startsWith('Arrow')) return key.replace('Arrow', '').toUpperCase();
+            if (key.startsWith('Shift')) return 'SHIFT (' + key.replace('Shift', '') + ')';
+            if (key.startsWith('Control')) return 'CTRL (' + key.replace('Control', '') + ')';
+            return key.toUpperCase();
+        }
+    }
+
+    class Arma {
+        constructor(weaponData) {
+            this.name = weaponData.name;
+            this.damage = weaponData.damage;
+            this.rateOfFire = weaponData.rate;
+            this.type = weaponData.type; 
+            this.lastFireTime = 0;
+
+            this.AoEDamage = weaponData.AoEDamage || 0;
+            this.explosionRadius = weaponData.explosionRadius || 0;
+            this.slowDuration = weaponData.slowDuration || 0;
+            this.slowFactor = weaponData.slowFactor || 0.5; 
+            this.splitCount = weaponData.splitCount || 0;
+            this.maxChargeDamage = weaponData.maxChargeDamage || this.damage;
+            this.chargeTime = weaponData.chargeTime || 0;
+            this.burstCount = weaponData.burstCount || 0;
+            this.burstDelay = weaponData.burstDelay || 0;
+            this.knockbackForce = weaponData.knockbackForce || 0;
+            this.bulletSpeed = weaponData.bulletSpeed || BULLET_SPEED; 
+            this.level = weaponData.level || 1; // Nivel de desbloqueo
+            this.isCharging = false;
+            this.chargeStartTime = 0;
+        }
+
+        canFire(time) {
+            if (time - this.lastFireTime >= this.rateOfFire * 1000) {
+                this.lastFireTime = time;
+                return true;
+            }
+            return false;
+        }
+
+        getChargeRatio(time) {
+            const timeElapsed = time - this.lastFireTime;
+            const cooldown = this.rateOfFire * 1000;
+            return Math.min(1, timeElapsed / cooldown);
+        }
+
+        getChargeProgress(time) {
+            if (this.type === 'charge' && this.isCharging) {
+                return Math.min(1, (time - this.chargeStartTime) / this.chargeTime);
+            }
+            return 0;
+        }
+    }
+
+    class Projectile { 
+        constructor(x, y, dx, dy, damage, ownerId, type = 'normal', color = null, properties = {}) {
+            this.x = x; this.y = y; this.dx = dx; this.dy = dy; 
+            this.damage = damage;
+            this.ownerId = ownerId; 
+            this.type = type; 
+            this.radius = properties.radius || 5;
+            this.color = color || (ownerId === 1 ? 'cyan' : 'blue'); 
+            this.isExploded = false; 
+            this.explosionTime = 0;
+            this.explosionDuration = 0.2; 
+            this.AoEDamage = properties.AoEDamage || 0;
+            this.explosionRadius = properties.explosionRadius || 0;
+            this.slowDuration = properties.slowDuration || 0;
+            this.slowFactor = properties.slowFactor || 0.5;
+            this.splitCount = properties.splitCount || 0;
+            this.knockbackForce = properties.knockbackForce || 0;
+            this.speed = properties.speed || BULLET_SPEED; 
+        }
+
+        update(dt) { 
+            if (this.isExploded) {
+                this.explosionTime += dt;
+                return;
+            }
+            this.x += this.dx * this.speed * dt;
+            this.y += this.dy * this.speed * dt; 
+        }
+
+        draw(ctx) {
+            if (this.isExploded) {
+                const ratio = this.explosionTime / this.explosionDuration;
+                if (ratio >= 1) return; 
+                ctx.fillStyle = `rgba(255, 100, 0, ${1 - ratio})`; 
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius + this.explosionRadius * ratio, 0, Math.PI * 2); 
+                ctx.fill();
+                return;
+            }
+            
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            if (this.type === 'grenade') {
+                ctx.fillStyle = this.color; 
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'black';
+                ctx.fillRect(this.x - 2, this.y - this.radius - 2, 4, 4);
+            }
+        }
+
+        explode() {
+            if (!this.isExploded) {
+                this.isExploded = true;
+                this.explosionTime = 0;
+            }
+        }
+        
+        isOutOfBounds() {
+            return this.x < -this.radius || this.x > GAME_WIDTH + this.radius ||
+                   this.y < -this.radius || this.y > GAME_HEIGHT + this.radius;
+        }
+    }
+
+
+    // ===============================================
+    // CLASE BASE PLAYER
+    // ===============================================
+    class Player {
+        constructor(id, x, y, controls) {
+            this.id = id;
+            this.x = x;
+            this.y = y;
+            this.width = 30;
+            this.height = 30;
+            this.hp = INITIAL_HP;
+            this.color = id === 1 ? 'lime' : 'magenta';
+            this.controls = controls;
+            this.isMoving = { x: 0, y: 0 };
+            
+            this.inventory = [ new Arma(WEAPON_LIST[0]) ];
+            this.currentWeaponIndex = 0;
+            
+            this.score = 0; 
+            
+            this.lastGrenadeTime = 0;
+            this.bombCooldown = 1.0; 
+
+            this.isSlowed = false;
+            this.slowEndTime = 0;
+            this.slowFactor = 0.5;
+        }
+
+        getCurrentWeapon() { return this.inventory[this.currentWeaponIndex]; }
+        changeWeapon() { this.currentWeaponIndex = (this.currentWeaponIndex + 1) % this.inventory.length; }
+
+        handleInput(keysPressed, time) {
+            if (this.hp <= 0) return;
+            this.isMoving.x = 0;
+            this.isMoving.y = 0;
+
+            const currentWeapon = this.getCurrentWeapon();
+
+            if (keysPressed[this.controls.UP]) this.isMoving.y -= 1;
+            if (keysPressed[this.controls.DOWN]) this.isMoving.y += 1;
+            if (keysPressed[this.controls.LEFT]) this.isMoving.x -= 1;
+            if (keysPressed[this.controls.RIGHT]) this.isMoving.x += 1;
+            
+            if (keysPressed[this.controls.FIRE]) {
+                if (currentWeapon.type === 'charge') {
+                    if (!currentWeapon.isCharging) {
+                        currentWeapon.isCharging = true;
+                        currentWeapon.chargeStartTime = time;
+                    }
+                }
+                this.fire(game.projectiles, time); 
+            } else {
+                if (currentWeapon.type === 'charge' && currentWeapon.isCharging) {
+                    this.fire(game.projectiles, time, true); 
+                    currentWeapon.isCharging = false;
+                    currentWeapon.chargeStartTime = 0;
+                }
+            }
+        }
+
+        update(dt) {
+            if (this.hp <= 0) return;
+
+            // Manejar efecto de ralentización
+            if (this.isSlowed && performance.now() < this.slowEndTime) {
+                this.effectiveSpeed = PLAYER_SPEED * this.slowFactor;
+            } else {
+                this.isSlowed = false;
+                this.effectiveSpeed = PLAYER_SPEED;
+            }
+
+            let moveX = this.isMoving.x * this.effectiveSpeed * dt;
+            let moveY = this.isMoving.y * this.effectiveSpeed * dt;
+
+            if (moveX !== 0 && moveY !== 0) {
+                const len = Math.sqrt(moveX * moveX + moveY * moveY);
+                moveX = (moveX / len) * this.effectiveSpeed * dt;
+                moveY = (moveY / len) * this.effectiveSpeed * dt;
+            }
+            this.x += moveX;
+            this.y += moveY;
+            
+            if (this.id === 1) {
+                this.x = Math.max(0, Math.min(this.x, SPLIT_WIDTH - this.width));
+            } else { // Bot
+                this.x = Math.max(SPLIT_WIDTH, Math.min(this.x, GAME_WIDTH - this.width));
+            }
+            this.y = Math.max(0, Math.min(this.y, GAME_HEIGHT - this.height));
+        }
+        
+        fire(projectiles, time, fromRelease = false) { 
+            const weapon = this.getCurrentWeapon();
+            
+            if (weapon.type === 'charge') {
+                if (!fromRelease && !weapon.isCharging) return; 
+
+                const chargeProgress = weapon.getChargeProgress(time);
+                
+                if (fromRelease || chargeProgress >= 1) { 
+                    const finalDamage = weapon.damage + (weapon.maxChargeDamage - weapon.damage) * chargeProgress;
+                    if (!weapon.canFire(time)) {
+                        weapon.isCharging = false;
+                        weapon.chargeStartTime = 0;
+                        return;
+                    }
+
+                    const startX = this.x + (this.id === 1 ? this.width : 0);
+                    const startY = this.y + this.height / 2;
+                    const dirX = this.id === 1 ? 1 : -1;
+                    
+                    projectiles.push(new Projectile(startX, startY, dirX, 0, finalDamage, this.id, 'normal', 'gold', { radius: 5, speed: weapon.bulletSpeed }));
+
+                    weapon.isCharging = false;
+                    weapon.chargeStartTime = 0;
+
+                    return; 
+                } else if (!fromRelease && weapon.isCharging) {
+                    return;
+                }
+            }
+
+            if (this.hp > 0 && weapon.canFire(time)) {
+                const startX = this.x + (this.id === 1 ? this.width : 0);
+                const startY = this.y + this.height / 2;
+                const dirX = this.id === 1 ? 1 : -1;
+                
+                let projectileProperties = {
+                    radius: 5,
+                    speed: weapon.bulletSpeed, 
+                    AoEDamage: weapon.AoEDamage,
+                    explosionRadius: weapon.explosionRadius,
+                    slowDuration: weapon.slowDuration,
+                    slowFactor: weapon.slowFactor,
+                    splitCount: weapon.splitCount,
+                    knockbackForce: weapon.knockbackForce
+                };
+
+                switch (weapon.type) {
+                    case 'spread': 
+                        const numPellets = 5;
+                        const maxAngle = Math.PI / 10; 
+                        for (let i = 0; i < numPellets; i++) {
+                            const angleOffset = (i - (numPellets - 1) / 2) * (maxAngle / (numPellets - 1));
+                            const baseAngle = this.id === 1 ? 0 : Math.PI;
+                            const finalAngle = baseAngle + angleOffset;
+                            const dx = Math.cos(finalAngle);
+                            const dy = Math.sin(finalAngle);
+                            projectiles.push(new Projectile(startX, startY, dx, dy, weapon.damage, this.id, 'normal', null, projectileProperties));
+                        }
+                        break;
+                    case 'grenade': 
+                        projectileProperties.radius = weapon.explosionRadius / 4; 
+                        projectileProperties.speed = GRENADE_SPEED;
+                        projectiles.push(new Projectile(startX, startY, dirX, 0, weapon.damage, this.id, 'grenade', 'orange', projectileProperties));
+                        break;
+                    case 'pierce': 
+                        projectiles.push(new Projectile(startX, startY, dirX, 0, weapon.damage, this.id, 'pierce', 'purple', projectileProperties));
+                        break;
+                    case 'slow': 
+                        projectiles.push(new Projectile(startX, startY, dirX, 0, weapon.damage, this.id, 'slow', 'lightblue', projectileProperties));
+                        break;
+                    case 'splitter': 
+                        projectiles.push(new Projectile(startX, startY, dirX, 0, weapon.damage, this.id, 'splitter', 'white', projectileProperties));
+                        break;
+                    case 'charge': 
+                        break;
+                    case 'burst': 
+                        for (let i = 0; i < weapon.burstCount; i++) {
+                            setTimeout(() => {
+                                projectiles.push(new Projectile(startX, startY, dirX, 0, weapon.damage, this.id, 'normal', 'yellow', projectileProperties));
+                            }, i * weapon.burstDelay * 1000);
+                        }
+                        break;
+                    case 'knockback': 
+                        projectiles.push(new Projectile(startX, startY, dirX, 0, weapon.damage, this.id, 'knockback', 'grey', projectileProperties));
+                        break;
+                    case 'normal': 
+                    default:
+                        projectiles.push(new Projectile(startX, startY, dirX, 0, weapon.damage, this.id, 'normal', null, projectileProperties));
+                        break;
+                }
+            }
+        }
+
+        receiveDamage(damage) {
+            if (this.hp > 0) {
+                this.hp -= damage;
+                if (this.hp < 0) this.hp = 0;
+            }
+        }
+
+        applySlow(duration, factor) {
+            this.isSlowed = true;
+            this.slowEndTime = performance.now() + duration * 1000;
+            this.slowFactor = factor;
+        }
+
+        applyKnockback(force) {
+            const dir = (this.id === 1) ? -1 : 1;
+            this.x += dir * force;
+        }
+
+        draw(ctx, time) {
+            const currentWeapon = this.getCurrentWeapon();
+            if (currentWeapon.type === 'charge' && currentWeapon.isCharging) {
+                const chargeProgress = currentWeapon.getChargeProgress(time);
+                ctx.strokeStyle = 'gold';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2 + 5, 0, Math.PI * 2 * chargeProgress);
+                ctx.stroke();
+            }
+
+            if (this.hp > 0) { 
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+            this.drawHUD(ctx, time);
+        }
+        
+        drawHUD(ctx, time) {
+            const hudX = this.id === 1 ? 10 : SPLIT_WIDTH + 10;
+            const hudY = 10; 
+            const barWidth = SPLIT_WIDTH * 0.9;
+            const barHeight = 15;
+            const hpRatio = this.hp / INITIAL_HP;
+            
+            ctx.fillStyle = '#333';
+            ctx.fillRect(hudX, hudY, barWidth, barHeight);
+            ctx.fillStyle = this.hp > 30 ? 'green' : 'red';
+            ctx.fillRect(hudX, hudY, barWidth * hpRatio, barHeight);
+            ctx.fillStyle = 'white';
+            ctx.font = '12px sans-serif';
+            ctx.textAlign = 'left';
+            
+            const name = this.id === 1 ? 'JUGADOR' : 'BOT';
+            const weaponName = this.getCurrentWeapon().name;
+            ctx.fillText(`${name} HP: ${Math.max(0, Math.floor(this.hp))}`, hudX + 5, hudY + 11);
+            
+            const weapon = this.getCurrentWeapon();
+            const chargeRatio = weapon.getChargeRatio(time);
+            const chargeBarHeight = 5;
+            
+            const chargeBarY = hudY + barHeight + 2; 
+
+            ctx.fillStyle = 'gray';
+            ctx.fillRect(hudX, chargeBarY, barWidth, chargeBarHeight);
+            ctx.fillStyle = chargeRatio === 1 ? 'cyan' : 'orange';
+            ctx.fillRect(hudX, chargeBarY, barWidth * chargeRatio, chargeBarHeight);
+            
+            if (weapon.type === 'charge' && weapon.isCharging) {
+                const chargeProgress = weapon.getChargeProgress(time);
+                ctx.fillStyle = 'yellow';
+                ctx.fillRect(hudX, chargeBarY, barWidth * chargeProgress, chargeBarHeight);
+                ctx.fillStyle = 'black';
+                ctx.fillText(`Cargando... ${(chargeProgress * 100).toFixed(0)}%`, hudX + 5, chargeBarY + chargeBarHeight - 1);
+            } else {
+                ctx.font = '10px sans-serif';
+                ctx.fillStyle = 'white';
+                ctx.textAlign = 'left';
+                ctx.fillText(weaponName, hudX + 5, chargeBarY + chargeBarHeight - 1);
+            }
+        }
+    }
+
+
+    // ===============================================
+    // CLASE BOT 
+    // ===============================================
+    class Bot extends Player {
+        constructor(id, x, y) {
+            super(id, x, y, null); 
+            this.color = 'magenta'; 
+            this.difficultyMultiplier = 0.8; 
+            this.fireDelayFactor = 1.0; 
+            this.moveRandomness = 0.3; 
+            this.lastMoveChange = 0;
+            this.moveChangeInterval = 0.5; 
+            
+            this.botGrenadeCooldown = 5.0; 
+            this.lastGrenadeTime = 0; 
+            this.botGrenadeChance = DIFFICULTY_SETTINGS.medium.bombChance; 
+            
+            this.inventory = [new Arma({ name: "BotGun", damage: 10, rate: 0.5, type: 'normal' })]; 
+            this.currentWeaponIndex = 0; 
+        }
+        
+        setDifficulty(settings, level) {
+            const ESCALATION_RATE = 0.05; 
+            const scaleFactor = 1 + (level - 1) * ESCALATION_RATE;
+            
+            this.difficultyMultiplier = settings.multiplier * scaleFactor;
+            this.fireDelayFactor = settings.fireRate / scaleFactor;
+            this.moveRandomness = Math.max(settings.moveRandom / scaleFactor, 0.01);
+            
+            this.botGrenadeChance = Math.min(settings.bombChance * scaleFactor, 0.95);
+            
+            const botWeapon = this.inventory[0];
+            botWeapon.damage = 10 * this.difficultyMultiplier; 
+            botWeapon.rateOfFire = botWeapon.rateOfFire / this.fireDelayFactor;
+
+            this.botGrenadeCooldown = 5.0 / scaleFactor; 
+        }
+
+        update(dt, targetPlayer) {
+            if (this.hp <= 0) return;
+            
+            this.updateBotLogic(dt, targetPlayer, performance.now());
+            
+            super.update(dt); 
+            
+            this.fire(game.projectiles, performance.now());
+        }
+
+
+        updateBotLogic(dt, target, time) {
+            const adjustedMoveInterval = this.moveChangeInterval / this.difficultyMultiplier;
+
+            if (time - this.lastMoveChange < adjustedMoveInterval * 1000) {
+                return;
+            }
+            this.lastMoveChange = time;
+
+            const targetCenterY = target.y + target.height / 2;
+            const myCenterY = this.y + this.height / 2;
+
+            const yDistance = targetCenterY - myCenterY;
+            const yThreshold = target.height / (4 * this.difficultyMultiplier); 
+
+            if (Math.abs(yDistance) < yThreshold) {
+                this.isMoving.y = 0;
+            } else {
+                this.isMoving.y = Math.sign(yDistance);
+            }
+
+            const desiredX = GAME_WIDTH - 80 * this.difficultyMultiplier; 
+            const xDistance = desiredX - this.x;
+            
+            if (Math.abs(xDistance) > 10) {
+                this.isMoving.x = Math.sign(xDistance);
+            } else {
+                this.isMoving.x = 0;
+            }
+
+            if (Math.random() < this.moveRandomness) {
+                this.isMoving.y = Math.random() < 0.5 ? -1 : 1;
+            }
+            
+            if (game.currentLevel >= 25 && (time - this.lastGrenadeTime >= this.botGrenadeCooldown * 1000)) { 
+                
+                const playerInAttackZone = target.x > SPLIT_WIDTH * 0.4;
+                const playerIsCloseToCenter = target.x > SPLIT_WIDTH * 0.2 && target.x < SPLIT_WIDTH * 0.8;
+
+                if ((playerInAttackZone || playerIsCloseToCenter) && Math.random() < this.botGrenadeChance) {
+                    this.throwBotGrenade(game.projectiles, time);
+                }
+            }
+        }
+        
+        fire(projectiles, time) {
+            const weapon = this.getCurrentWeapon();
+            const botCooldown = weapon.rateOfFire / this.fireDelayFactor;
+
+            if (this.hp > 0 && (time - weapon.lastFireTime >= botCooldown * 1000)) {
+                weapon.lastFireTime = time;
+                const dirX = -1; 
+                const startX = this.x;
+                const startY = this.y + this.height / 2;
+                
+                const botProjectileProperties = { speed: BULLET_SPEED }; 
+                
+                projectiles.push(new Projectile(startX, startY, dirX, 0, weapon.damage, this.id, 'normal', 'blue', botProjectileProperties));
+            }
+        }
+
+        throwBotGrenade(projectiles, time) {
+            this.lastGrenadeTime = time; 
+            
+            const startX = this.x + this.width / 2;
+            const startY = this.y + this.height / 2;
+            const dirX = -1; 
+            
+            const grenadeData = WEAPON_LIST.find(w => w.name === "Granada");
+            if (grenadeData) {
+                const projectileProperties = {
+                    radius: grenadeData.explosionRadius / 4,
+                    speed: GRENADE_SPEED,
+                    AoEDamage: grenadeData.AoEDamage,
+                    explosionRadius: grenadeData.explosionRadius
+                };
+                projectiles.push(new Projectile(startX, startY, dirX, 0, grenadeData.damage, this.id, 'grenade', 'orange', projectileProperties));
+            }
+        }
+    }
+
+
+    // ===============================================
+    // CLASE PRINCIPAL: GAME 
+    // ===============================================
+    class Game {
+        constructor() {
+            this.player1 = null;
+            this.bot = null;
+            this.projectiles = []; 
+            this.keysPressed = {};
+            this.gameState = 'MENU'; // Estado inicial: MENU
+            this.lastTime = 0;
+            this.isCapturingKey = false;
+            this.currentKeyTarget = null;
+            
+            this.currentLevel = 1;
+            this.difficultyKey = 'medium'; 
+            this.difficultySettings = DIFFICULTY_SETTINGS[this.difficultyKey];
+            this.totalLevels = MAX_LEVELS; 
+            
+            this.message = ''; 
+            this.messageTime = 0; 
+            this.messageDuration = 3000; 
+            
+            this.setupListeners();
+            this.renderConfigInterface(); // Renderiza los controles en el menú
+            this.updateMenuMessage(); // Actualiza el mensaje del menú principal
+        }
+        
+        setupListeners() {
+            window.addEventListener('keydown', e => {
+                const key = e.key.toLowerCase();
+                const time = performance.now();
+                
+                if (this.isCapturingKey) {
+                    e.preventDefault();
+                    if (key !== 'escape') {
+                        this.assignKey(key);
+                    } else { // Si se presiona ESC durante la captura
+                        this.isCapturingKey = false;
+                        this.currentKeyTarget = null;
+                        document.getElementById('current-prompt').textContent = '';
+                    }
+                    return;
+                }
+                
+                this.keysPressed[key] = true;
+                if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'enter'].includes(key)) {
+                    e.preventDefault();
+                }
+
+                if (key === Configuration.controls.p1.PAUSE.toLowerCase()) {
+                    if (this.gameState === 'PLAYING' || this.gameState === 'PAUSED') {
+                        this.togglePause();
+                        return; 
+                    }
+                }
+                
+                // Solo ESPACIO para iniciar si estamos en el menú principal y no configurando
+                if (this.gameState === 'MENU' && key === ' ' && !document.getElementById('config-controls').classList.contains('hidden')) {
+                    this.startGame();
+                } else if (this.gameState === 'PLAYING') {
+                    if (key === this.player1.controls.CHANGE_WEAPON) {
+                        this.player1.changeWeapon();
+                        const currentWeapon = this.player1.getCurrentWeapon();
+                        if (currentWeapon.type === 'charge') {
+                            currentWeapon.isCharging = false;
+                            currentWeapon.chargeStartTime = 0;
+                        }
+                    }
+                    this.player1.handleInput(this.keysPressed, time);
+                } else if (this.gameState === 'LEVEL_WIN' || this.gameState === 'GAMEOVER') {
+                    if (key === 'escape') {
+                        this.currentLevel = 1; 
+                        this.player1.score = 0;
+                        this.gameState = 'MENU';
+                        this.showMainMenu(); // Volver al menú principal
+                    } else if (this.gameState === 'LEVEL_WIN' && key === ' ') {
+                        this.currentLevel++;
+                        this.startGame();
+                    }
+                }
+            });
+
+            window.addEventListener('keyup', e => {
+                const key = e.key.toLowerCase();
+                if (this.player1 && this.player1.getCurrentWeapon().type === 'charge' && key === this.player1.controls.FIRE) {
+                    this.player1.fire(this.projectiles, performance.now(), true); 
+                    this.player1.getCurrentWeapon().isCharging = false;
+                    this.player1.getCurrentWeapon().chargeStartTime = 0;
+                }
+                delete this.keysPressed[key];
+            });
+            
+            document.getElementById('start-btn').onclick = () => this.startGame();
+            document.getElementById('config-btn').onclick = () => this.showConfigControls(true);
+            document.getElementById('view-weapons-btn').onclick = () => this.showWeaponList(true);
+            document.getElementById('back-to-menu-from-config').onclick = () => this.showConfigControls(false);
+            document.getElementById('close-weapons-btn').onclick = () => this.showWeaponList(false);
+
+            document.getElementById('difficulty').onchange = (e) => {
+                this.difficultyKey = e.target.value;
+                this.difficultySettings = DIFFICULTY_SETTINGS[this.difficultyKey];
+                this.updateMenuMessage();
+            };
+            document.getElementById('pause-button').onclick = () => this.togglePause();
+        }
+        
+        showMessage(text) {
+            this.message = text;
+            this.messageTime = performance.now();
+        }
+
+        togglePause() {
+            if (this.gameState === 'PLAYING') {
+                this.gameState = 'PAUSED';
+                document.getElementById('pause-button').textContent = "REANUDAR (P)";
+                document.getElementById('menu-message').innerHTML = "**JUEGO PAUSADO**<br>Pulsa **P** o haz clic en REANUDAR para seguir.";
+                document.getElementById('menu').classList.remove('hidden');
+                this.draw(performance.now()); 
+            } else if (this.gameState === 'PAUSED') {
+                this.gameState = 'PLAYING';
+                document.getElementById('pause-button').textContent = "PAUSA (P)";
+                document.getElementById('menu').classList.add('hidden');
+                this.lastTime = performance.now(); 
+                requestAnimationFrame(this.loop.bind(this));
+            }
+        }
+
+        renderConfigInterface() {
+            const p1Div = document.getElementById('p1-config');
+            const createControlRows = (playerId, container) => {
+                // container.innerHTML = `<h2>JUGADOR ${playerId === 1 ? 'HUMANO' : 'BOT'}</h2>`; // Ya está en el HTML
+                const controls = Configuration.controls['p' + playerId];
+                for (const action in controls) {
+                    const row = document.createElement('div');
+                    row.className = 'control-row';
+                    const label = document.createElement('span');
+                    label.textContent = Configuration.controlNames[action] + ':';
+                    const keyDisplay = document.createElement('div');
+                    keyDisplay.className = 'key-display';
+                    keyDisplay.id = `key-${playerId}-${action}`;
+                    keyDisplay.textContent = Configuration.getKeyDisplay(controls[action]);
+                    keyDisplay.onclick = () => this.startKeyCapture(playerId, action, keyDisplay);
+                    row.appendChild(label);
+                    row.appendChild(keyDisplay);
+                    container.appendChild(row);
+                }
+            };
+            p1Div.innerHTML = '<h2>JUGADOR (Controles)</h2>'; // Limpiar antes de renderizar
+            createControlRows(1, p1Div);
+            document.getElementById('config-controls').classList.add('hidden');
+        }
+
+        showMainMenu() {
+            this.gameState = 'MENU';
+            document.getElementById('menu').classList.remove('hidden');
+            document.getElementById('main-menu-buttons').classList.remove('hidden');
+            document.getElementById('difficulty-select').classList.remove('hidden');
+            document.getElementById('config-controls').classList.add('hidden');
+            document.getElementById('weapon-list-container').classList.add('hidden');
+            document.getElementById('pause-button').classList.add('hidden');
+            this.updateMenuMessage();
+        }
+
+        showConfigControls(show) {
+            document.getElementById('main-menu-buttons').classList.toggle('hidden', show);
+            document.getElementById('difficulty-select').classList.toggle('hidden', show);
+            document.getElementById('config-controls').classList.toggle('hidden', !show);
+            this.gameState = show ? 'CONFIG' : 'MENU';
+            document.getElementById('menu-message').textContent = show ? 
+                "Haz clic en una tecla para reasignarla. Pulsa 'Volver al Menú' cuando termines." :
+                `Prepárate para la acción. Nivel actual: ${this.currentLevel}.`;
+        }
+        
+        showWeaponList(show) {
+            document.getElementById('menu').classList.toggle('hidden', show); // Ocultar menú principal
+            document.getElementById('weapon-list-container').classList.toggle('hidden', !show);
+            this.gameState = show ? 'WEAPONS' : 'MENU';
+
+            if (show) {
+                const weaponsContent = document.getElementById('weapons-content');
+                weaponsContent.innerHTML = ''; // Limpiar contenido anterior
+                WEAPON_LIST.forEach(weapon => {
+                    const div = document.createElement('div');
+                    div.className = 'weapon-item';
+                    let details = `<strong>${weapon.name}</strong> (Desbloquea en Nivel ${weapon.level || 1})<br>`;
+                    details += `<span>Daño: ${weapon.damage}`;
+                    if (weapon.maxChargeDamage && weapon.type === 'charge') {
+                        details += ` - ${weapon.maxChargeDamage} (cargado)`;
+                    }
+                    details += `</span>`;
+                    details += `<span>Cadencia: ${1 / weapon.rate} disparos/seg.</span>`;
+                    if (weapon.bulletSpeed && weapon.bulletSpeed !== BULLET_SPEED) {
+                        details += `<span>Velocidad de Bala: ${(weapon.bulletSpeed / BULLET_SPEED).toFixed(1)}x Normal</span>`;
+                    }
+                    if (weapon.type === 'grenade') {
+                        details += `<span>Tipo: Granada (Daño AoE: ${weapon.AoEDamage}, Radio: ${weapon.explosionRadius})</span>`;
+                    } else if (weapon.type === 'slow') {
+                        details += `<span>Tipo: Ralentización (Factor: ${weapon.slowFactor}, Duración: ${weapon.slowDuration}s)</span>`;
+                    } else if (weapon.type === 'pierce') {
+                        details += `<span>Tipo: Perforación (Atraviesa enemigos)</span>`;
+                    } else if (weapon.type === 'splitter') {
+                        details += `<span>Tipo: Bifurcador (Se divide en ${weapon.splitCount} proyectiles)</span>`;
+                    } else if (weapon.type === 'burst') {
+                        details += `<span>Tipo: Ráfaga (${weapon.burstCount} proyectiles)</span>`;
+                    } else if (weapon.type === 'knockback') {
+                        details += `<span>Tipo: Empuje (Empuja al enemigo)</span>`;
+                    } else {
+                         details += `<span>Tipo: ${weapon.type.charAt(0).toUpperCase() + weapon.type.slice(1)}</span>`;
+                    }
+                    
+                    div.innerHTML = details;
+                    weaponsContent.appendChild(div);
+                });
+            } else {
+                this.updateMenuMessage(); // Al cerrar, restaurar el mensaje del menú principal
+            }
+        }
+
+        updateMenuMessage() {
+             const difficultyName = document.getElementById('difficulty').options[document.getElementById('difficulty').selectedIndex].text;
+             document.getElementById('menu-message').innerHTML = 
+                 `**Dificultad Actual: ${difficultyName}**.<br>Prepárate para el **Nivel ${this.currentLevel}**.`;
+        }
+        
+        startKeyCapture(playerId, action, element) {
+            this.isCapturingKey = true;
+            this.currentKeyTarget = { playerId, action, element };
+            document.getElementById('current-prompt').textContent = `Presiona una tecla para asignar a ${Configuration.controlNames[action]}... (ESC para cancelar)`;
+        }
+        
+        assignKey(key) {
+            Configuration.controls[this.currentKeyTarget.playerId === 1 ? 'p1' : 'p2'][this.currentKeyTarget.action] = key;
+            this.currentKeyTarget.element.textContent = Configuration.getKeyDisplay(key);
+            this.isCapturingKey = false;
+            this.currentKeyTarget = null;
+            document.getElementById('current-prompt').textContent = '';
+        }
+
+        startGame() {
+            document.getElementById('menu').classList.add('hidden');
+            document.getElementById('pause-button').classList.remove('hidden'); 
+            this.gameState = 'PLAYING';
+            
+            if (!this.player1) {
+                this.player1 = new Player(1, 50, GAME_HEIGHT / 2 - 15, Configuration.controls.p1);
+            }
+            
+            this.bot = new Bot(2, GAME_WIDTH - 80, GAME_HEIGHT / 2 - 15); 
+            
+            this.player1.hp = INITIAL_HP;
+            this.bot.hp = INITIAL_HP;
+
+            this.bot.setDifficulty(this.difficultySettings, this.currentLevel);
+
+            const oldWeaponCount = this.player1.inventory.length;
+            this.player1.inventory = [ new Arma(WEAPON_LIST[0]) ]; 
+            
+            let unlockedNewWeapon = false;
+            for (let i = 1; i < WEAPON_LIST.length; i++) {
+                if (this.currentLevel >= WEAPON_LIST[i].level) { 
+                    const w = WEAPON_LIST[i];
+                    this.player1.inventory.push(new Arma(w));
+                    if (this.player1.inventory.length > oldWeaponCount) { 
+                         this.showMessage(`💥 ¡NUEVA ARMA! ${w.name} desbloqueada en Nivel ${w.level}.`);
+                    }
+                }
+            }
+            this.player1.currentWeaponIndex = 0; 
+            
+            this.projectiles = []; 
+            this.lastTime = performance.now();
+            
+            requestAnimationFrame(this.loop.bind(this));
+        }
+
+        loop(timestamp) {
+            const dt = (timestamp - this.lastTime) / 1000;
+            this.lastTime = timestamp;
+
+            if (this.gameState === 'PLAYING') {
+                this.update(dt, timestamp);
+                this.draw(timestamp);
+                
+                if (this.player1.hp <= 0 || this.bot.hp <= 0) {
+                    const playerWon = this.player1.hp > 0;
+                    if (playerWon) {
+                        this.player1.score++; 
+                        this.gameState = this.player1.score >= this.totalLevels ? 'GAMEOVER' : 'LEVEL_WIN';
+                    } else {
+                        this.gameState = 'GAMEOVER'; 
+                    }
+                    this.endGameScreen(); 
+                }
+
+            } else if (this.gameState === 'GAMEOVER' || this.gameState === 'LEVEL_WIN') {
+                if (this.keysPressed['escape']) {
+                    this.currentLevel = 1; 
+                    this.player1.score = 0;
+                    this.showMainMenu(); // Volver al menú principal
+                } else if (this.gameState === 'LEVEL_WIN' && this.keysPressed[' ']) {
+                    this.currentLevel++;
+                    if (this.currentLevel > this.totalLevels) {
+                        this.gameState = 'GAMEOVER';
+                        this.endGameScreen();
+                    } else {
+                         this.startGame();
+                    }
+                }
+            } else if (this.gameState === 'PAUSED') {
+                this.draw(timestamp);
+            }
+
+            if (this.gameState === 'PLAYING' || this.gameState === 'PAUSED') {
+                 requestAnimationFrame(this.loop.bind(this));
+            }
+        }
+        
+        endGameScreen() {
+            document.getElementById('pause-button').classList.add('hidden'); 
+            this.draw(performance.now()); 
+            
+            document.getElementById('menu').classList.remove('hidden');
+            document.getElementById('main-menu-buttons').classList.add('hidden'); // Ocultar botones principales
+            document.getElementById('config-controls').classList.add('hidden');
+            document.getElementById('difficulty-select').classList.add('hidden');
+            
+            let message = "";
+            
+            if (this.gameState === 'GAMEOVER') {
+                
+                const finalVictory = this.player1.hp > 0 && this.player1.score >= this.totalLevels;
+                
+                this.player1.score = 0; 
+                this.currentLevel = 1;
+
+                if (finalVictory) {
+                    message = `¡🎉 **VICTORIA FINAL**! 🎉<br>Has derrotado al Bot en dificultad **${this.difficultyKey.toUpperCase()}**.<br>Pulsa **ESC** para volver al menú principal.`;
+                } else {
+                    message = `¡Has perdido! El Bot ha ganado.<br>Pulsa **ESC** para volver al menú principal.`;
+                }
+            } else if (this.gameState === 'LEVEL_WIN') {
+                message = `**¡NIVEL ${this.currentLevel} COMPLETADO!** (Rondas Ganadas: ${this.player1.score}/${this.totalLevels})<br>Prepárate para el **Nivel ${this.currentLevel + 1}**.<br>Pulsa **ESPACIO** para continuar.`;
+            }
+            
+            document.getElementById('menu-message').innerHTML = message;
+        }
+
+
+        update(dt, time) {
+            this.player1.update(dt);
+            this.bot.update(dt, this.player1); 
+
+            this.projectiles = this.projectiles.filter(p => {
+                p.update(dt);
+                if (p.isExploded) {
+                    return p.explosionTime < p.explosionDuration; 
+                }
+                if (p.isOutOfBounds()) return false;
+
+                let target = (p.ownerId === 1) ? this.bot : this.player1;
+
+                const hit = (
+                    p.x + p.radius > target.x && p.x - p.radius < target.x + target.width &&
+                    p.y + p.radius > target.y && p.y - p.radius < target.y + target.height
+                );
+
+                if (hit && target.hp > 0) {
+                    if (p.type === 'grenade') {
+                        p.explode();
+                        target.receiveDamage(p.damage);
+                        if (p.AoEDamage > 0) {
+                            target.receiveDamage(p.AoEDamage);
+                        }
+                    } else if (p.type === 'slow') {
+                        target.receiveDamage(p.damage);
+                        target.applySlow(p.slowDuration, p.slowFactor);
+                        return false; 
+                    } else if (p.type === 'splitter') {
+                        target.receiveDamage(p.damage);
+                        for (let i = 0; i < p.splitCount; i++) {
+                            const angle = Math.random() * Math.PI * 2; 
+                            const dx = Math.cos(angle);
+                            const dy = Math.sin(angle);
+                            this.projectiles.push(new Projectile(p.x, p.y, dx, dy, p.damage / 2, p.ownerId, 'normal', 'white', { radius: 3, speed: p.speed }));
+                        }
+                        return false; 
+                    } else if (p.type === 'knockback') {
+                        target.receiveDamage(p.damage);
+                        target.applyKnockback(p.knockbackForce);
+                        return false; 
+                    } else if (p.type !== 'pierce') { 
+                        target.receiveDamage(p.damage);
+                        return false;
+                    } else { 
+                        target.receiveDamage(p.damage);
+                    }
+                }
+                
+                return true; 
+            });
+        }
+
+        draw(time) {
+            CTX.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+            
+            CTX.fillStyle = '#444'; 
+            CTX.fillRect(SPLIT_WIDTH - 1, 0, 2, GAME_HEIGHT);
+            
+            this.player1.draw(CTX, time);
+            this.bot.draw(CTX, time);
+            
+            this.projectiles.forEach(p => p.draw(CTX)); 
+            
+            CTX.fillStyle = 'yellow';
+            CTX.font = '20px sans-serif';
+            CTX.textAlign = 'center';
+            if (this.gameState === 'PLAYING') { // Solo mostrar nivel si estamos jugando
+                CTX.fillText(`NIVEL ${this.currentLevel}`, GAME_WIDTH / 2, GAME_HEIGHT - 10);
+            }
+            
+            if (this.message && (time - this.messageTime) < this.messageDuration) {
+                CTX.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                CTX.fillRect(0, GAME_HEIGHT / 2 - 40, GAME_WIDTH, 80);
+                
+                CTX.fillStyle = 'white';
+                CTX.font = '30px sans-serif';
+                CTX.textAlign = 'center';
+                CTX.fillText(this.message, GAME_WIDTH / 2, GAME_HEIGHT / 2 + 10);
+            }
+
+            if (this.gameState === 'GAMEOVER' || this.gameState === 'LEVEL_WIN' || this.gameState === 'PAUSED') {
+                CTX.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                CTX.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+                
+                let message;
+                let color;
+                
+                if (this.gameState === 'PAUSED') {
+                    message = "PAUSA";
+                    color = 'white';
+                } else if (this.gameState === 'LEVEL_WIN') {
+                    message = `NIVEL ${this.currentLevel} GANADO!`;
+                    color = 'lime';
+                } else {
+                    const finalVictory = this.player1.hp > 0 && this.player1.score >= this.totalLevels;
+                    message = finalVictory ? "¡VICTORIA FINAL!" : "¡HAS PERDIDO!";
+                    color = finalVictory ? 'lime' : 'red';
+                }
+                    
+                CTX.fillStyle = color;
+                CTX.font = '48px sans-serif';
+                CTX.textAlign = 'center';
+                CTX.fillText(message, GAME_WIDTH / 2, GAME_HEIGHT / 2);
+            }
+        }
+    }
+
+    const game = new Game();
+</script>
+
+</body>
+</html>
